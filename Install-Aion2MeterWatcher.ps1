@@ -72,7 +72,9 @@ function Get-ManifestValue {
 function Get-ExpectedSha256 {
     param([Parameter(Mandatory = $true)]$Manifest)
 
-    foreach ($name in @('sha256', 'sha256Hash', 'checksum', 'hash')) {
+    # Only honour fields that explicitly identify themselves as SHA-256.
+    # Do not guess what a generic "hash" field means.
+    foreach ($name in @('sha256', 'sha256Hash')) {
         $value = Get-ManifestValue -Manifest $Manifest -Name $name
         if ($null -ne $value) {
             $text = ([string]$value).Trim()
@@ -116,7 +118,7 @@ New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
 
 try {
     Write-Step 'Checking the official Abyss Logs release manifest...'
-    $manifest = Invoke-RestMethod -Uri $manifestUrl -UseBasicParsing -Headers @{ 'Cache-Control' = 'no-cache' }
+    $manifest = Invoke-RestMethod -Uri $manifestUrl -UseBasicParsing -TimeoutSec 30 -Headers @{ 'Cache-Control' = 'no-cache' }
 
     $downloadRaw = Get-ManifestValue -Manifest $manifest -Name 'downloadUrl'
     if ([string]::IsNullOrWhiteSpace([string]$downloadRaw)) {
@@ -124,7 +126,7 @@ try {
     }
 
     $manifestUri = [Uri]$manifestUrl
-    $downloadUri = New-Object System.Uri($manifestUri, [string]$downloadRaw)
+    $downloadUri = [Uri]::new($manifestUri, [string]$downloadRaw)
     if ($downloadUri.Scheme -ne 'https') {
         throw "Refusing a non-HTTPS meter download URL: $($downloadUri.AbsoluteUri)"
     }
@@ -138,7 +140,7 @@ try {
     Write-Step ("Downloading from {0}..." -f $downloadUri.Host)
 
     $packagePath = Join-Path $stagingRoot 'meter-download.bin'
-    Invoke-WebRequest -Uri $downloadUri.AbsoluteUri -OutFile $packagePath -UseBasicParsing
+    Invoke-WebRequest -Uri $downloadUri.AbsoluteUri -OutFile $packagePath -UseBasicParsing -TimeoutSec 600
 
     $package = Get-Item -LiteralPath $packagePath
     if ($package.Length -lt 1024) {
