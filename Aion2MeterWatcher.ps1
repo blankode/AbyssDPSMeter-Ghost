@@ -129,10 +129,28 @@ function Get-GameRunning {
 }
 
 function Get-MeterProcesses {
-    # Track only the configured executable. With the standard setup this is
-    # exactly AbyssDPSMeter.exe / process name AbyssDPSMeter.
+    if ([string]::IsNullOrWhiteSpace($meterPath)) {
+        return @()
+    }
+
     $exactName = [System.IO.Path]::GetFileNameWithoutExtension($meterPath)
-    return @(Get-Process -Name $exactName -ErrorAction SilentlyContinue)
+    $targetPath = $meterPath
+
+    return @(
+        Get-Process -Name $exactName -ErrorAction SilentlyContinue |
+            Where-Object {
+                try {
+                    $_.Path -and [string]::Equals(
+                        [string]$_.Path,
+                        [string]$targetPath,
+                        [System.StringComparison]::OrdinalIgnoreCase
+                    )
+                }
+                catch {
+                    $false
+                }
+            }
+    )
 }
 
 function Start-Meter {
