@@ -4,56 +4,68 @@ A small Windows watcher for AION 2 that automatically starts the official Abyss 
 
 ## What it does
 
-- Downloads the latest official Abyss DPS Meter during installation.
-- Uses the meter's official release manifest at `https://cdn.meter.abysslogs.com/manifest.json`.
-- Stores the runtime copy as `%LOCALAPPDATA%\Aion2MeterWatcher\AbyssDPSMeter.exe`.
+- Resolves the latest official Abyss DPS Meter release automatically during installation.
+- Uses `https://api.abysslogs.com/v1/meter/latest` as the primary latest-release endpoint.
+- Keeps `https://cdn.meter.abysslogs.com/manifest.json` only as a fallback and supports nested manifest fields.
+- Downloads short-lived signed release URLs immediately instead of hardcoding them.
+- Supports the current official `AbyssDPSMeter-vX.Y.Z-setup.exe` release format.
+- Installs the official Wails/NSIS package silently under `%LOCALAPPDATA%\Aion2MeterWatcher\Meter`.
 - Starts `AbyssDPSMeter.exe` automatically when `AION2.exe` is detected.
 - Runs the watcher itself hidden at Windows logon.
 - Removes AbyssDPSMeter windows from the Windows taskbar while keeping the overlay usable.
 - Runs through a highest-privilege scheduled task so the meter can keep the administrator rights required for Npcap packet capture.
 - Stops `AbyssDPSMeter.exe` automatically when `AION2.exe` is no longer running.
-- Reloads `config.json` while the watcher is running, so lifecycle settings can be changed without restarting the scheduled task.
+- Reloads `config.json` while the watcher is running.
 - Does **not** modify, patch, inject into, or touch `AION2.exe`.
-- Does **not** patch or modify the downloaded AbyssDPSMeter executable.
+- Does **not** patch or modify the official Abyss DPS Meter executable.
 
 ## Install
 
 1. Download or clone this repository.
 2. Double-click `Install.cmd`.
 3. Accept the UAC prompt.
-4. The installer checks the official Abyss Logs release manifest, downloads the latest meter package, extracts `AbyssDPSMeter.exe` if required, and installs everything under `%LOCALAPPDATA%\Aion2MeterWatcher`.
+4. The installer resolves the current official release, downloads it to a temporary staging directory, installs the meter under `%LOCALAPPDATA%\Aion2MeterWatcher\Meter`, and creates the hidden watcher task.
 5. After installation succeeds, the downloaded/cloned repository folder can be deleted.
 
 You do **not** need to download `AbyssDPSMeter.exe` manually or keep it beside `Install.cmd`.
 
-The installer creates a hidden scheduled task named:
+The installer creates a scheduled task named:
 
 `AION2 - Abyss DPS Meter Watcher`
 
-Runtime files are stored in:
+Runtime files are stored under:
 
 `%LOCALAPPDATA%\Aion2MeterWatcher`
 
-Typical contents:
+Typical layout:
 
 ```text
-Aion2MeterWatcher.ps1
-AbyssDPSMeter.exe
-config.json
-watcher.log
+Aion2MeterWatcher\
+├── Aion2MeterWatcher.ps1
+├── config.json
+├── watcher.log
+└── Meter\
+    ├── AbyssDPSMeter.exe
+    └── ...files created by the official installer
 ```
 
-Temporary download/extraction files are created under `%TEMP%` only while the installer is running and are removed afterwards.
+Temporary download files are created under `%TEMP%` only while the installer runs and are removed afterwards.
 
 ## Official download source
 
-The installer does not scrape the website UI. It reads the same official Abyss Logs release channel used by the meter:
+Primary release metadata endpoint:
+
+`https://api.abysslogs.com/v1/meter/latest`
+
+Fallback release manifest:
 
 `https://cdn.meter.abysslogs.com/manifest.json`
 
-The manifest's `downloadUrl` is used to retrieve the current release. The installer requires HTTPS, accepts either an EXE or ZIP package, and verifies that the final `AbyssDPSMeter.exe` is a Windows PE executable before installing it.
+The API provides the current version and a fresh `downloadUrl`. The download URL may point to a short-lived signed Cloudflare R2 URL, so the installer resolves it every time instead of storing or hardcoding a signed link.
 
-If the manifest exposes a SHA-256 checksum field, the installer verifies it before installation as well.
+The current Windows release is an NSIS setup executable. Wails uses NSIS for Windows packaging, so the installer runs it silently with `/S` and overrides the destination with `/D=...`, installing it inside the Ghost LocalAppData directory.
+
+If Abyss Logs changes back to a portable EXE or ZIP release, the installer also supports those formats.
 
 ## Default behaviour
 
@@ -61,12 +73,13 @@ If the manifest exposes a SHA-256 checksum field, the installer verifies it befo
 - The meter is removed from the Windows taskbar.
 - `AION2.exe` closes -> `AbyssDPSMeter.exe` is force-closed.
 
-Default config:
+Example generated config:
 
 ```json
 {
-  "MeterPath": "%LOCALAPPDATA%\\Aion2MeterWatcher\\AbyssDPSMeter.exe",
+  "MeterPath": "C:\\Users\\<user>\\AppData\\Local\\Aion2MeterWatcher\\Meter\\AbyssDPSMeter.exe",
   "MeterVersion": "<downloaded version>",
+  "MeterReleaseApiUrl": "https://api.abysslogs.com/v1/meter/latest",
   "MeterManifestUrl": "https://cdn.meter.abysslogs.com/manifest.json",
   "GameProcessName": "AION2",
   "HideFromTaskbar": true,
@@ -83,13 +96,14 @@ Run `Install.cmd` again at any time.
 
 It will:
 
-1. Check the current official Abyss Logs manifest.
-2. Download the currently published meter release.
-3. Stop the old watcher and the installed meter if necessary.
-4. Replace `%LOCALAPPDATA%\Aion2MeterWatcher\AbyssDPSMeter.exe`.
-5. Recreate and restart the scheduled task.
+1. Resolve the current official Abyss Logs release.
+2. Request a fresh download URL.
+3. Download the currently published release.
+4. Stop the old watcher and installed meter.
+5. Reinstall the official meter under `%LOCALAPPDATA%\Aion2MeterWatcher\Meter`.
+6. Recreate and restart the scheduled task.
 
-The Abyss DPS Meter also has its own in-app updater; this installer flow simply guarantees that a fresh/reinstall starts from the current official release.
+The Abyss DPS Meter also has its own updater. Re-running Ghost's installer guarantees a fresh install from the current official release channel.
 
 ## Troubleshooting
 
@@ -101,26 +115,35 @@ Installed config:
 
 `%LOCALAPPDATA%\Aion2MeterWatcher\config.json`
 
-Installed meter:
+Installed meter is normally:
 
-`%LOCALAPPDATA%\Aion2MeterWatcher\AbyssDPSMeter.exe`
+`%LOCALAPPDATA%\Aion2MeterWatcher\Meter\AbyssDPSMeter.exe`
+
+The exact detected executable path is stored in `config.json` as `MeterPath`.
 
 ## Uninstall
 
 Double-click `Uninstall.cmd`.
 
-This stops the watcher, stops the LocalAppData-installed meter instance, removes the scheduled task, and deletes `%LOCALAPPDATA%\Aion2MeterWatcher` including the downloaded `AbyssDPSMeter.exe`.
+This stops the watcher, stops the LocalAppData-installed meter instance, removes the scheduled task, and deletes `%LOCALAPPDATA%\Aion2MeterWatcher`.
+
+## Version 5
+
+- Fixed the incorrect assumption that the CDN manifest always exposes a root-level `downloadUrl`.
+- Uses the official meter's stable `/v1/meter/latest` API as the primary release resolver.
+- CDN manifest is now fallback-only and searched recursively.
+- Correctly handles signed Cloudflare R2 URLs that expire.
+- Correctly handles current `*-setup.exe` releases instead of renaming the installer to `AbyssDPSMeter.exe`.
+- Runs the official Wails/NSIS installer silently into the Ghost LocalAppData directory.
+- Automatically migrates away from the old v4 root-level meter layout.
 
 ## Version 4
 
 - `Install.cmd` no longer requires a manually downloaded `AbyssDPSMeter.exe`.
-- Installer resolves the latest release from the official Abyss Logs meter manifest.
 - Official package is downloaded to a temporary staging directory.
 - ZIP and direct EXE release formats are supported.
-- Runtime `AbyssDPSMeter.exe` is installed under `%LOCALAPPDATA%\Aion2MeterWatcher`.
 - The source/download folder can be deleted after installation.
-- Re-running the installer refreshes the locally installed meter from the official release channel.
-- Uninstall now removes the locally installed meter as well.
+- Uninstall removes the locally installed meter as well.
 
 ## Version 3
 
